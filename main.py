@@ -18,12 +18,12 @@ Wrong flags on input.
 ###################
 # turn fastqs into fasta
 ###################
-def fastq_to_fasta(input_directory, master_dir):
+def fastq_to_fasta(input_directory, output_directory):
     # list the fastq files in the directory
     fastqs = [file for file in glob.glob(os.path.join(input_directory, '*')) if bool(re.search("fastq|fq", file))]
 
     # define combined fastq
-    combined_fastq = os.path.join(master_dir, "all_passed_fastqs.fastq.gz")
+    combined_fastq = os.path.join(output_directory, "all_passed_fastqs.fastq.gz")
 
     # concatenate fastqs
     for i, fastq in enumerate(fastqs):
@@ -35,28 +35,36 @@ def fastq_to_fasta(input_directory, master_dir):
 
         os.system(cline)
 
-    # define combined output fasta        
+    # define combined output fasta
     fasta_out = ".".join(combined_fastq.split(".")[:-2]) + ".fasta"
 
     # define command line
     cline = f"zcat {combined_fastq}" + ''' | awk '{if(NR%4==1) {printf(">%s\\n",substr($0,2));} else if(NR%4==2) print;}' ''' f"> {fasta_out}"
     os.system(cline)
 
-    return fasta_out, combined_fastq
+    # split fastq file into smaller fastqs for future processing reads into places
+    regex = os.path.join(output_directory, "temporary_fastq")
+    cline = f"zcat {combined_fastq} | split -l 100000 - {regex}"
+    os.system(cline)
+
+    # list plit fastqs
+    fastqs_out = glob.glob(regex + "*")
+
+    return fasta_out, fastqs_out
 
 
 ###################
 # separate fastas into smaller fastas
 ###################
-def split_fasta(infile, master_dir):
+def split_fasta(infile, output_directory):
     # max file size is 100Mb (seems to work well on most systems for speed)
     max_bytes = 100000000
 
-    # number of splits for the 
+    # number of splits for the
     splits = math.ceil(os.path.getsize(infile) / max_bytes)
 
     # create directories for each file
-    dirs = list(map(lambda x: os.path.join(master_dir, f"working_{x}"), range(splits)))
+    dirs = list(map(lambda x: os.path.join(output_directory, f"working_{x}"), range(splits)))
     for dir in dirs:
         try:
             os.makedirs(f"{dir}")
@@ -68,7 +76,7 @@ def split_fasta(infile, master_dir):
     file_number = 0
 
     # initial output file
-    outfile = open(os.path.join(master_dir, f"working_{file_number}", (f"reads.fa")), "w")
+    outfile = open(os.path.join(output_directory, f"working_{file_number}", (f"reads.fa")), "w")
 
     # separate fasta into parts by memory size
     for i, line in enumerate(open(infile)):
@@ -77,7 +85,7 @@ def split_fasta(infile, master_dir):
             outfile.close()
             file_number += 1
             total_bytes = 0
-            outfile = open(os.path.join(master_dir, f"working_{file_number}", (f"reads.fa")), "w")
+            outfile = open(os.path.join(output_directory, f"working_{file_number}", (f"reads.fa")), "w")
 
         # write line to new file
         outfile.write(line)
@@ -138,9 +146,11 @@ def bowtie_index(working_dir):
     # define arguments to create index
     reads_fasta = os.path.join(working_dir, 'reads.fa')
     index_name = os.path.join(working_dir, 'reads')
-
-    # cline = f'''conda run -n {conda_env_name} bowtie-build {reads_fasta} {index_name}'''
-    cline = f'''/home/flavia/Documents/Concordia/Project/Nanopore/download/bowtie2-2.4.5-linux-x86_64/bowtie2-build {reads_fasta} {index_name}'''
+    # try:
+    #     cline = f'''conda run -n {conda_env_name} bowtie-build {reads_fasta} {index_name}'''
+    #     os.system(cline)
+    # except:
+    cline = f'''bowtie2-build {reads_fasta} {index_name}'''
     os.system(cline)
 
     return index_name
@@ -158,6 +168,17 @@ def bowtie(args):
     if not os.path.isfile(reads_fasta_index + ".1.ebwt"):
         print("Index does not exist")
 
+    # try:
+    #     # run alignment for 5' barcodes
+    #     out_sam_file_1 = os.path.join(working_dir, "alignment_5.sam")
+    #     os.system(f"conda run -n {conda_env_name} bowtie -x {reads_fasta_index} -q {barcodes_fastq_1} -v 1 -a --sam > {out_sam_file_1}")
+    #     # os.system(f"bowtie -x {reads_fasta_index} -q {barcodes_fastq_1} -v 1 -a --sam > {out_sam_file_1}")
+    #
+    #     # run alignment for 3' barcodes
+    #     out_sam_file_2 = os.path.join(working_dir, "alignment_3.sam")
+    #     os.system(f"conda run -n {conda_env_name} bowtie -x {reads_fasta_index} -q {barcodes_fastq_2} -v 1 -a --sam > {out_sam_file_2}")
+    #     # os.system(f"bowtie -x {reads_fasta_index} -q {barcodes_fastq_2} -v 1 -a --sam > {out_sam_file_2}")
+    # except:
     # run alignment for 5' barcodes
     out_sam_file_1 = os.path.join(working_dir, "alignment_5.sam")
     os.system(f"bowtie2 -x {reads_fasta_index} -q {barcodes_fastq_1} -v 1 -a --sam > {out_sam_file_1}")
@@ -242,66 +263,107 @@ def concat_dfs(combined_fasta, master_dir, barcode_version):
 ###################
 # create directories for final assignments
 ###################
-def create_final_directories(barcode_df, master_dir):
-    # three parent directories: barcode_5_assigned_only, barcode_3_assigned_only, fully_assigned
-    parent_dir = os.path.join(master_dir, 'read_assignments')
+def create_final_directories(barcode_5, output_directory):
+    # # three parent directories: barcode_5_assigned_only, barcode_3_assigned_only, fully_assigned
+    # parent_dir = os.path.join(output_directory, 'read_assignments')
 
-    # make parent directory
-    try:
-        os.makedirs(parent_dir)
-    except:
-        print(f"Making working directory failed for parent directory {parent_dir}")
-
-    # rename the "0" assignment to no assignment
-    barcode_df = barcode_df.replace("0", "no_assignment")
-    barcode_df = barcode_df.replace(0, "no_assignment")
+    # # make parent directory
+    # try:
+    #     os.makedirs(parent_dir)
+    # except:
+    #     print(f"Making working directory failed for parent directory {parent_dir}")
 
     # for each barcode_5, make a directory in fully_assigned and barcode_5_assigned_only
-    for barcode in np.unique(barcode_df.loc[:, 'barcode_5'].to_numpy(dtype='str')):
+    for barcode in barcode_5:
         # make directory
-        dir = os.path.join(parent_dir, barcode)
+        dir = os.path.join(output_directory, barcode)
         try:
             os.makedirs(dir)
         except:
-            print(f"Making working directory failed for directory {dir}")
+            pass
+            # print(f"Making working directory failed for directory {dir}")
 
-    return barcode_df, parent_dir
+    return output_directory
 
 
 ###################
 # move reads to respective folders
 ###################
-def organize_fastq_reads(combined_fastq, final_parent_dir, barcode_df):
+def organize_fastq_reads(args):
+    infile_fastq, output_directory, barcode_df, iteration = args
+
+    # create working directory for this file
+    working_dir = os.path.join(output_directory, ("read_assignment_" + str(iteration)))
+    try:
+        os.mkdir(working_dir)
+    except:
+        print(f"Making dir failed for {working_dir}")
+
+    # create directory tree
+    working_dir = create_final_directories(barcode_df.loc[:, 'barcode_5'].to_numpy(dtype='str'), working_dir)
+
     # iteratively read lines of combined gzipped file
-    with gzip.open(combined_fastq, "rb") as infile:
+    with open(infile_fastq) as infile:
         for i, line in enumerate(infile):
             if i % 4 == 0:
-                # first " " delimination is the read name minus the 
-                read_name = line.decode("utf-8").strip("@").split()[0]
+                # first " " delimination is the read name minus the
+                read_name = line.strip("@").split()[0]
 
-                # assign outfile 
+                # assign outfile
                 try:
-                    oufile = os.path.join(final_parent_dir, barcode_df.loc[read_name, 'barcode_5'],
+                    oufile = os.path.join(working_dir, barcode_df.loc[read_name, 'barcode_5'],
                                           (barcode_df.loc[read_name, 'barcode_3'] + ".fastq.gz"))
                 except:
-                    oufile = os.path.join(final_parent_dir, "no_assignment", "no_assignment.fastq.gz")
+                    oufile = os.path.join(working_dir, "no_assignment", "no_assignment.fastq.gz")
 
             # write read to outfile
             with gzip.open(oufile, "ab") as outfile:
-                outfile.write(line)
+                outfile.write(line.encode('utf-8'))
 
-    return i
+    return working_dir
+
+
+def combine_output_files(args):
+    # decompose args
+    regex, dir_5, file_3, final_parent_dir = args
+
+    # go through all possible dir and file combinations
+    files_of_interest = glob.glob(regex)
+
+    if len(files_of_interest) > 0:
+        # define final output file
+        final_output = os.path.join(final_parent_dir, dir_5, (file_3 + ".fastq.gz"))
+
+        # iteratively concatenate file to final output
+        for file in files_of_interest:
+            cline = f"cat {file} >> {final_output}"
+            os.system(cline)
+
+    return
+
+
+###################
+# count assigned reads
+###################
+def counts_read_assignemnts(barcode_df):
+    # create a new dataframe for 5' barcodes and 3' barcodes
+    res_df = pd.DataFrame(columns=np.unique(barcode_df.loc[:, 'barcode_5'].to_numpy()),
+                          index=np.unique(barcode_df.loc[:, 'barcode_3'].to_numpy()))
+
+    # populate table
+
+    return
 
 
 ###################
 # cleanup results directory
 ###################
-def cleanup_results_dir(master_dir, final_parent_dir):
+def cleanup_results_dir(output_directory, mask_arr):
     # list all files to remove
-    files = np.array(glob.glob(os.path.join(master_dir, "*")))
+    files = np.array(glob.glob(os.path.join(output_directory, "*")))
 
     # exclude the final parent directory
-    files = files[np.invert(files == final_parent_dir)]
+    files = files[np.invert(np.isin(files, mask_arr))]
     for file in files:
         try:
             shutil.rmtree(file)
@@ -315,7 +377,7 @@ def main():
 
     # try making the output directory
     try:
-        os.mkdir(master_dir)
+        os.mkdir(output_directory)
     except:
         pass
 
@@ -323,13 +385,13 @@ def main():
     # turn fastqs into fasta
     ###################
     # turn reads fastqs into fastas
-    combined_fasta, combined_fastq = fastq_to_fasta(input_directory, master_dir)
+    combined_fasta, fastqs_out = fastq_to_fasta(input_directory, output_directory)
 
     ###################
     # separate fastas into smaller fastas
     ###################
     # arguments for fasta into smaller fasta for faster processing
-    individual_directories = split_fasta(combined_fasta, master_dir)
+    individual_directories = split_fasta(combined_fasta, output_directory)
 
     ###################
     # read barcodes from metadata and turn into fastqs in each sub directory
@@ -338,7 +400,7 @@ def main():
     metadata_file = os.path.join(input_directory, "meta_data.tsv")
 
     # barcode fastqs
-    barcode_fastqs = barcodes_from_metadata(metadata_file, master_dir)
+    barcode_fastqs = barcodes_from_metadata(metadata_file, output_directory)
 
     ###################
     # create index from each reads.fa
@@ -377,8 +439,8 @@ def main():
         barcodes_3_tsv = list(executor.map(separate_reads, args))
 
     # concatenate files
-    barcode_5_df = concat_dfs(barcodes_5_tsv, master_dir, "barcode_5")
-    barcode_3_df = concat_dfs(barcodes_3_tsv, master_dir, "barcode_3")
+    barcode_5_df = concat_dfs(barcodes_5_tsv, output_directory, "barcode_5")
+    barcode_3_df = concat_dfs(barcodes_3_tsv, output_directory, "barcode_3")
 
     # concatenate data frames
     barcode_df = barcode_5_df.loc[:, ['barcode']].copy()
@@ -388,29 +450,60 @@ def main():
     barcode_3_df.columns = ['barcode_3']
 
     barcode_df = pd.concat([barcode_df, barcode_3_df])
+
+    # rename the "0" assignment to no assignment
     barcode_df = barcode_df.fillna('no_assignment')
-
-    ###################
-    # create directories for final assignments
-    ###################
-    barcode_df, final_parent_dir = create_final_directories(barcode_df, master_dir)
-
-    ###################
-    # move reads into correct directories and files
-    ###################
-    reads_assigned = organize_fastq_reads(combined_fastq, final_parent_dir, barcode_df)
-    print(f"Number of reads assigned: {reads_assigned}")
+    barcode_df = barcode_df.replace("0", "no_assignment")
+    barcode_df = barcode_df.replace(0, "no_assignment")
 
     ###################
     # save dataframe to output
     ###################
-    outfile = os.path.join(master_dir, "read_assignments.tsv")
+    outfile = os.path.join(output_directory, "read_assignments.tsv")
     barcode_df.to_csv(outfile, sep='\t')
+
+
+    ###################
+    # move reads into correct directories and files
+    ###################
+    # args = [(file, final_parent_dir, np.unique(barcode_df.loc[:,'barcode_5'].to_numpy()), np.unique(barcode_df.loc[:,'barcode_3'].to_numpy()), i) for i, file in enumerate(fastqs_out)]
+    args = [(file, output_directory, barcode_df, i) for i, file in enumerate(fastqs_out)]
+
+    # separate files into
+    with ProcessPoolExecutor(max_workers=threads) as executor:
+        # directories for parallelized processing
+        read_assignment_dirs = list(executor.map(organize_fastq_reads, args))
+
+    # create directories for final assignments
+    final_parent_dir = create_final_directories(np.unique(barcode_df.loc[:, 'barcode_5'].to_numpy()), output_directory)
+
+    # define directories and files
+    dirs = list(np.unique(barcode_df.loc[:, 'barcode_5'].to_numpy()))
+    dirs.append("no_assignment")
+
+    files = list(np.unique(barcode_df.loc[:, 'barcode_3'].to_numpy()))
+    files.append("no_assignment")
+
+    # list regex files we need to search for
+    args = []
+    for dir_5 in dirs:
+        for file_3 in files:
+            args.append(
+                [os.path.join(output_directory, "*", dir_5, (file_3 + ".fastq.gz")), dir_5, file_3, final_parent_dir])
+
+    # combined separate files
+    with ProcessPoolExecutor(max_workers=threads) as executor:
+        # directories for parallelized processing
+        _null = list(executor.map(combine_output_files, args))
 
     ###################
     # cleanup results directory
     ###################
-    cleanup_results_dir(master_dir, final_parent_dir)
+    # a list of possible directories and the final description tsv to keep
+    dirs = list(map(lambda x: os.path.join(output_directory, x), dirs))
+    dirs.append(outfile)
+
+    cleanup_results_dir(output_directory, np.array(dirs))
 
     print(time.time() - t1)
     print('demultiplex.py COMPLETE')
@@ -426,7 +519,7 @@ if __name__ == "__main__":
     # the necessary input files and described output file
     try:
         opts, args = getopt.getopt(sys.argv[1:], "a:b:c:d:",
-                                   ["input_directory=", "master_dir=", "threads=", "conda_env_name="])
+                                   ["input_directory=", "output_directory=", "threads=", "conda_env_name="])
     except getopt.GetoptError:
         print(help_message)
         sys.exit(2)
@@ -436,8 +529,8 @@ if __name__ == "__main__":
         # assumes the file describing barcodes is called "meta_data.tsv" and is in the input_directory
         if opt in ("-a", "--input_directory"):
             input_directory = str(arg)
-        if opt in ("-b", "--master_dir"):
-            master_dir = str(arg)
+        if opt in ("-b", "--output_directory"):
+            output_directory = str(arg)
         if opt in ("-c", "--threads"):
             threads = int(arg)
         if opt in ("-d", "--conda_env_name"):
