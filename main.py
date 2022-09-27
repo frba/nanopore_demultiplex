@@ -355,9 +355,9 @@ def combine_output_files(args):
 ###################
 def counts_read_assignemnts(barcode_df):
     count_series = barcode_df.groupby(['barcode_5', 'barcode_3']).size()
-    new_df = count_series.to_frame(name='count').reset_index()
+    count_df = count_series.to_frame(name='count').reset_index()
 
-    return new_df
+    return count_df
 
 
 ###################
