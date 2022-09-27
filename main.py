@@ -116,7 +116,12 @@ def barcodes_from_metadata(metadata_file, master_dir):
         res_fasta = []
 
         # iterate through barcodes and create a fasta
-        for i, barcode in enumerate(np.unique(ref_df.loc[:, spec_type].to_numpy())):
+        # for i, barcode in enumerate(np.unique(ref_df.loc[:, spec_type].to_numpy())):
+        #     to_add = f">barcode_{1 + round(len(res_fasta) / 2)}"
+        #     res_fasta.extend([to_add, barcode])
+
+        #Code change to add the barcode in same order as the input file
+        for i, barcode in ref_df[spec_type].drop_duplicates().iteritems():
             to_add = f">barcode_{1 + round(len(res_fasta) / 2)}"
             res_fasta.extend([to_add, barcode])
 
@@ -150,7 +155,7 @@ def bowtie_index(working_dir):
     #     cline = f'''conda run -n {conda_env_name} bowtie-build {reads_fasta} {index_name}'''
     #     os.system(cline)
     # except:
-    cline = f'''bowtie2-build {reads_fasta} {index_name}'''
+    cline = f'''/home/flavia/Documents/Concordia/Project/Nanopore/download/bowtie-1.3.1-linux-x86_64/bowtie-build {reads_fasta} {index_name}'''
     os.system(cline)
 
     return index_name
@@ -181,11 +186,11 @@ def bowtie(args):
     # except:
     # run alignment for 5' barcodes
     out_sam_file_1 = os.path.join(working_dir, "alignment_5.sam")
-    os.system(f"bowtie2 -x {reads_fasta_index} -q {barcodes_fastq_1} -v 1 -a --sam > {out_sam_file_1}")
+    os.system(f"/home/flavia/Documents/Concordia/Project/Nanopore/download/bowtie-1.3.1-linux-x86_64/bowtie -x {reads_fasta_index} -q {barcodes_fastq_1} -v 1 -a --sam > {out_sam_file_1}")
 
     # run alignment for 3' barcodes
     out_sam_file_2 = os.path.join(working_dir, "alignment_3.sam")
-    os.system(f"bowtie2 -x {reads_fasta_index} -q {barcodes_fastq_2} -v 1 -a --sam > {out_sam_file_2}")
+    os.system(f"/home/flavia/Documents/Concordia/Project/Nanopore/download/bowtie-1.3.1-linux-x86_64/bowtie -x {reads_fasta_index} -q {barcodes_fastq_2} -v 1 -a --sam > {out_sam_file_2}")
 
     return [out_sam_file_1, out_sam_file_2]
 
@@ -202,13 +207,16 @@ def separate_reads(sam_file):
     # load sam file as df
     try:
         map_df = pd.read_csv(sam_file, sep='\t', comment="@", header=None)
+
     except:
         map_df = pd.DataFrame(
             [line for line in list(map(lambda x: x.strip("\n").split("\t"), open(sam_file).readlines())) if
-             len(line) == 15])
+             len(line) == 15]) #????????
 
     map_df.columns = col_names
     map_df.index = map_df['fastq'].to_numpy()
+    # Removed lines with no sequences
+    map_df = map_df[map_df['flag'] != 4]
 
     # load sequence lengths dictionary
     seq_lengths_dict = {}
@@ -346,13 +354,10 @@ def combine_output_files(args):
 # count assigned reads
 ###################
 def counts_read_assignemnts(barcode_df):
-    # create a new dataframe for 5' barcodes and 3' barcodes
-    res_df = pd.DataFrame(columns=np.unique(barcode_df.loc[:, 'barcode_5'].to_numpy()),
-                          index=np.unique(barcode_df.loc[:, 'barcode_3'].to_numpy()))
+    count_series = barcode_df.groupby(['barcode_5', 'barcode_3']).size()
+    new_df = count_series.to_frame(name='count').reset_index()
 
-    # populate table
-
-    return
+    return new_df
 
 
 ###################
@@ -451,11 +456,18 @@ def main():
 
     barcode_df = pd.concat([barcode_df, barcode_3_df])
 
+    ###################
+    # Change barcode_df # Fixing? Concatenating reads with same name
+    ###################
+    barcode_df = barcode_df.reset_index(level=0)
+    barcode_df = barcode_df.groupby('index').agg({'barcode_5': 'first', 'barcode_3': 'first'}, )
+
     # rename the "0" assignment to no assignment
     barcode_df = barcode_df.fillna('no_assignment')
     barcode_df = barcode_df.replace("0", "no_assignment")
     barcode_df = barcode_df.replace(0, "no_assignment")
 
+    barcode_df = barcode_df.sort_values(by=["barcode_5", "barcode_3"], ascending=True)
     ###################
     # save dataframe to output
     ###################
@@ -500,10 +512,17 @@ def main():
     # cleanup results directory
     ###################
     # a list of possible directories and the final description tsv to keep
-    dirs = list(map(lambda x: os.path.join(output_directory, x), dirs))
-    dirs.append(outfile)
+    # dirs = list(map(lambda x: os.path.join(output_directory, x), dirs))
+    # dirs.append(outfile)
+    #
+    # cleanup_results_dir(output_directory, np.array(dirs))
 
-    cleanup_results_dir(output_directory, np.array(dirs))
+    ###################
+    # count assigned reads
+    ###################
+    count_df = counts_read_assignemnts(barcode_df)
+    out_count = os.path.join(output_directory, "count_assigned_reads.tsv")
+    count_df.to_csv(out_count, sep='\t')
 
     print(time.time() - t1)
     print('demultiplex.py COMPLETE')
