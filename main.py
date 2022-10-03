@@ -145,6 +145,32 @@ def barcodes_from_metadata(metadata_file, master_dir):
 
 
 ###################
+# read templates from metadata and turn into fastqs in each sub directory
+###################
+def templates_from_metadata(metadata_file, master_dir):
+    # load the dataframe
+    ref_df = pd.read_csv(metadata_file, sep='\t')
+    ref_df.columns = list(map(lambda x: re.sub("'", "", x), ref_df.columns.to_numpy()))
+    ref_df.columns = list(map(lambda x: re.sub(" ", "_", x), ref_df.columns.to_numpy()))
+
+    res_fasta = []
+    df_template = ref_df.drop_duplicates(subset=['Full_amplicon_SEQUENCE'])
+    #Code change to add the barcode in same order as the input file
+    outpath = os.path.join(master_dir, 'templates', 'fasta')
+    try:
+        os.makedirs(outpath)
+    except:
+        pass
+
+    for i, row in df_template.iterrows():
+        template_name = f">{row['Amplicon_name']}"
+        res_fasta.extend([template_name, row['Full_amplicon_SEQUENCE'].upper()])
+
+        with open(os.path.join(outpath, f"{row['Amplicon_name']}.fa"), "w") as outfile:
+            outfile.write("\n".join(res_fasta))
+
+
+###################
 # create bowtie index
 ###################
 def bowtie_index(working_dir):
@@ -406,6 +432,7 @@ def main():
 
     # barcode fastqs
     barcode_fastqs = barcodes_from_metadata(metadata_file, output_directory)
+    templates_from_metadata(metadata_file, output_directory)
 
     ###################
     # create index from each reads.fa
