@@ -173,7 +173,7 @@ def bowtie_index(working_dir):
     # define arguments to create index
     reads_fasta = os.path.join(working_dir, 'reads.fa')
     index_name = os.path.join(working_dir, 'reads')
-    cline = f'''/home/flavia/Documents/Concordia/Project/Nanopore/download/bowtie-1.3.1-linux-x86_64/bowtie-build {reads_fasta} {index_name}'''
+    cline = f'''bowtie-build {reads_fasta} {index_name}'''
     os.system(cline)
 
     return index_name
@@ -193,11 +193,11 @@ def bowtie(args):
 
     # run alignment for 5' barcodes
     out_sam_file_1 = os.path.join(working_dir, "alignment_5.sam")
-    os.system(f"/home/flavia/Documents/Concordia/Project/Nanopore/download/bowtie-1.3.1-linux-x86_64/bowtie -x {reads_fasta_index} -q {barcodes_fastq_1} -v 1 -a --sam > {out_sam_file_1}")
+    os.system(f"bowtie -x {reads_fasta_index} -q {barcodes_fastq_1} -v 1 -a --sam > {out_sam_file_1}")
 
     # run alignment for 3' barcodes
     out_sam_file_2 = os.path.join(working_dir, "alignment_3.sam")
-    os.system(f"/home/flavia/Documents/Concordia/Project/Nanopore/download/bowtie-1.3.1-linux-x86_64/bowtie -x {reads_fasta_index} -q {barcodes_fastq_2} -v 1 -a --sam > {out_sam_file_2}")
+    os.system(f"bowtie -x {reads_fasta_index} -q {barcodes_fastq_2} -v 1 -a --sam > {out_sam_file_2}")
 
     return [out_sam_file_1, out_sam_file_2]
 
