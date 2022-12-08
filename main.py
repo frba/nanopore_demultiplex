@@ -108,22 +108,20 @@ def barcodes_from_metadata(metadata_file, master_dir):
 
     # define the parcode types
     barcode_types = ['5_barcode_sequence', '3_barcode_sequence']
+    barcode_names = ['5_barcode_name', '3_barcode_name']
     outfiles = []
 
     # iterate through barcode for assignment
-    for spec_type in barcode_types:
+    for spec_type, spec_name in zip(barcode_types, barcode_names):
         # create a fasta of 5' sequences
         res_fasta = []
 
-        # iterate through barcodes and create a fasta
-        # for i, barcode in enumerate(np.unique(ref_df.loc[:, spec_type].to_numpy())):
-        #     to_add = f">barcode_{1 + round(len(res_fasta) / 2)}"
-        #     res_fasta.extend([to_add, barcode])
-
         #Code change to add the barcode in same order as the input file
-        for i, barcode in ref_df[spec_type].drop_duplicates().iteritems():
-            to_add = f">barcode_{1 + round(len(res_fasta) / 2)}"
-            res_fasta.extend([to_add, barcode])
+        unique_df = ref_df.drop_duplicates(subset=[spec_type])
+        for idx, row in unique_df.iterrows():
+            barcode_name = ">"+row[spec_name]
+            barcode_type = row[spec_type]
+            res_fasta.extend([barcode_name, barcode_type])
 
         with open(os.path.join(master_dir, f"{spec_type}.fa"), "w") as outfile:
             outfile.write("\n".join(res_fasta))
@@ -175,10 +173,6 @@ def bowtie_index(working_dir):
     # define arguments to create index
     reads_fasta = os.path.join(working_dir, 'reads.fa')
     index_name = os.path.join(working_dir, 'reads')
-    # try:
-    #     cline = f'''conda run -n {conda_env_name} bowtie-build {reads_fasta} {index_name}'''
-    #     os.system(cline)
-    # except:
     cline = f'''/home/flavia/Documents/Concordia/Project/Nanopore/download/bowtie-1.3.1-linux-x86_64/bowtie-build {reads_fasta} {index_name}'''
     os.system(cline)
 
@@ -197,17 +191,6 @@ def bowtie(args):
     if not os.path.isfile(reads_fasta_index + ".1.ebwt"):
         print("Index does not exist")
 
-    # try:
-    #     # run alignment for 5' barcodes
-    #     out_sam_file_1 = os.path.join(working_dir, "alignment_5.sam")
-    #     os.system(f"conda run -n {conda_env_name} bowtie -x {reads_fasta_index} -q {barcodes_fastq_1} -v 1 -a --sam > {out_sam_file_1}")
-    #     # os.system(f"bowtie -x {reads_fasta_index} -q {barcodes_fastq_1} -v 1 -a --sam > {out_sam_file_1}")
-    #
-    #     # run alignment for 3' barcodes
-    #     out_sam_file_2 = os.path.join(working_dir, "alignment_3.sam")
-    #     os.system(f"conda run -n {conda_env_name} bowtie -x {reads_fasta_index} -q {barcodes_fastq_2} -v 1 -a --sam > {out_sam_file_2}")
-    #     # os.system(f"bowtie -x {reads_fasta_index} -q {barcodes_fastq_2} -v 1 -a --sam > {out_sam_file_2}")
-    # except:
     # run alignment for 5' barcodes
     out_sam_file_1 = os.path.join(working_dir, "alignment_5.sam")
     os.system(f"/home/flavia/Documents/Concordia/Project/Nanopore/download/bowtie-1.3.1-linux-x86_64/bowtie -x {reads_fasta_index} -q {barcodes_fastq_1} -v 1 -a --sam > {out_sam_file_1}")
@@ -410,145 +393,145 @@ def main():
     except:
         pass
 
-    ###################
-    # turn fastqs into fasta
-    ###################
-    # turn reads fastqs into fastas
-    # combined_fasta, fastqs_out = fastq_to_fasta(input_directory, output_directory)
-    #
-    # ###################
-    # # separate fastas into smaller fastas
-    # ###################
-    # # arguments for fasta into smaller fasta for faster processing
-    # individual_directories = split_fasta(combined_fasta, output_directory)
+    ##################
+    #turn fastqs into fasta
+    ##################
+    #turn reads fastqs into fastas
+    combined_fasta, fastqs_out = fastq_to_fasta(input_directory, output_directory)
 
     ###################
-    # read barcodes from metadata and turn into fastqs in each sub directory
+    # separate fastas into smaller fastas
     ###################
-    # file for meta_data
+    # arguments for fasta into smaller fasta for faster processing
+    individual_directories = split_fasta(combined_fasta, output_directory)
+    #
+    # ##################
+    # #read barcodes from metadata and turn into fastqs in each sub directory
+    # ##################
+    # # file for meta_data
     metadata_file = os.path.join(input_directory, "meta_data.tsv")
-
-    # barcode fastqs
+    #
+    # # barcode fastqs
     barcode_fastqs = barcodes_from_metadata(metadata_file, output_directory)
-    templates_from_metadata(metadata_file, output_directory)
+    #templates_from_metadata(metadata_file, output_directory)
 
-    # ###################
-    # # create index from each reads.fa
-    # ###################
-    # args = [(working_dir) for working_dir in individual_directories]
-    #
-    # with ProcessPoolExecutor(max_workers=threads) as executor:
-    #     # directories for parallelized processing
-    #     _null = list(executor.map(bowtie_index, individual_directories))
-    #
-    # ###################
-    # # align barcodes to reads
-    # ###################
-    # # arguments for mapping 5' barcode
-    # args = [(barcode_fastqs[0], barcode_fastqs[1], working_dir) for working_dir in individual_directories]
-    #
-    # with ProcessPoolExecutor(max_workers=threads) as executor:
-    #     # directories for parallelized processing
-    #     sam_files = list(executor.map(bowtie, args))
-    #
-    # ###################
-    # # assign barcodes to reads and create a dataframe describing read assignments
-    # ###################
-    # args = list(map(lambda x: x[0], sam_files))
-    #
-    # # process sam files for barcode assignment
-    # with ProcessPoolExecutor(max_workers=threads) as executor:
-    #     # directories for parallelized processing
-    #     barcodes_5_tsv = list(executor.map(separate_reads, args))
-    #
-    # args = list(map(lambda x: x[1], sam_files))
-    #
-    # # process sam files for barcode assignment
-    # with ProcessPoolExecutor(max_workers=threads) as executor:
-    #     # directories for parallelized processing
-    #     barcodes_3_tsv = list(executor.map(separate_reads, args))
-    #
-    # # concatenate files
-    # barcode_5_df = concat_dfs(barcodes_5_tsv, output_directory, "barcode_5")
-    # barcode_3_df = concat_dfs(barcodes_3_tsv, output_directory, "barcode_3")
-    #
-    # # concatenate data frames
-    # barcode_df = barcode_5_df.loc[:, ['barcode']].copy()
-    # barcode_df.columns = ['barcode_5']
-    #
-    # barcode_3_df = barcode_3_df.loc[:, ['barcode']]
-    # barcode_3_df.columns = ['barcode_3']
-    #
-    # barcode_df = pd.concat([barcode_df, barcode_3_df])
-    #
-    # ###################
-    # # Change barcode_df # Fixing? Concatenating reads with same name
-    # ###################
-    # barcode_df = barcode_df.reset_index(level=0)
-    # barcode_df = barcode_df.groupby('index').agg({'barcode_5': 'first', 'barcode_3': 'first'}, )
-    #
-    # # rename the "0" assignment to no assignment
-    # barcode_df = barcode_df.fillna('no_assignment')
-    # barcode_df = barcode_df.replace("0", "no_assignment")
-    # barcode_df = barcode_df.replace(0, "no_assignment")
-    #
-    # barcode_df = barcode_df.sort_values(by=["barcode_5", "barcode_3"], ascending=True)
-    # ###################
-    # # save dataframe to output
-    # ###################
-    # outfile = os.path.join(output_directory, "read_assignments.tsv")
-    # barcode_df.to_csv(outfile, sep='\t')
-    #
-    #
-    # ###################
-    # # move reads into correct directories and files
-    # ###################
-    # # args = [(file, final_parent_dir, np.unique(barcode_df.loc[:,'barcode_5'].to_numpy()), np.unique(barcode_df.loc[:,'barcode_3'].to_numpy()), i) for i, file in enumerate(fastqs_out)]
-    # args = [(file, output_directory, barcode_df, i) for i, file in enumerate(fastqs_out)]
-    #
-    # # separate files into
-    # with ProcessPoolExecutor(max_workers=threads) as executor:
-    #     # directories for parallelized processing
-    #     read_assignment_dirs = list(executor.map(organize_fastq_reads, args))
-    #
-    # # create directories for final assignments
-    # final_parent_dir = create_final_directories(np.unique(barcode_df.loc[:, 'barcode_5'].to_numpy()), output_directory)
-    #
-    # # define directories and files
-    # dirs = list(np.unique(barcode_df.loc[:, 'barcode_5'].to_numpy()))
-    # dirs.append("no_assignment")
-    #
-    # files = list(np.unique(barcode_df.loc[:, 'barcode_3'].to_numpy()))
-    # files.append("no_assignment")
-    #
-    # # list regex files we need to search for
-    # args = []
-    # for dir_5 in dirs:
-    #     for file_3 in files:
-    #         args.append(
-    #             [os.path.join(output_directory, "*", dir_5, (file_3 + ".fastq.gz")), dir_5, file_3, final_parent_dir])
-    #
-    # # combined separate files
-    # with ProcessPoolExecutor(max_workers=threads) as executor:
-    #     # directories for parallelized processing
-    #     _null = list(executor.map(combine_output_files, args))
-    #
-    # ###################
-    # # cleanup results directory
-    # ###################
-    # # a list of possible directories and the final description tsv to keep
-    # # dirs = list(map(lambda x: os.path.join(output_directory, x), dirs))
-    # # dirs.append(outfile)
-    # #
-    # # cleanup_results_dir(output_directory, np.array(dirs))
-    #
-    # ###################
-    # # count assigned reads
-    # ###################
-    # count_df = counts_read_assignemnts(barcode_df)
-    # out_count = os.path.join(output_directory, "count_assigned_reads.tsv")
-    # count_df.to_csv(out_count, sep='\t')
+    ###################
+    # create index from each reads.fa
+    ###################
+    args = [(working_dir) for working_dir in individual_directories]
 
+    with ProcessPoolExecutor(max_workers=threads) as executor:
+        # directories for parallelized processing
+        _null = list(executor.map(bowtie_index, individual_directories))
+
+    ###################
+    # align barcodes to reads
+    ###################
+    # arguments for mapping 5' barcode
+    args = [(barcode_fastqs[0], barcode_fastqs[1], working_dir) for working_dir in individual_directories]
+
+    with ProcessPoolExecutor(max_workers=threads) as executor:
+        # directories for parallelized processing
+        sam_files = list(executor.map(bowtie, args))
+
+    ###################
+    # assign barcodes to reads and create a dataframe describing read assignments
+    ###################
+    args = list(map(lambda x: x[0], sam_files))
+
+    # process sam files for barcode assignment
+    with ProcessPoolExecutor(max_workers=threads) as executor:
+        # directories for parallelized processing
+        barcodes_5_tsv = list(executor.map(separate_reads, args))
+
+    args = list(map(lambda x: x[1], sam_files))
+
+    # process sam files for barcode assignment
+    with ProcessPoolExecutor(max_workers=threads) as executor:
+        # directories for parallelized processing
+        barcodes_3_tsv = list(executor.map(separate_reads, args))
+
+    # concatenate files
+    barcode_5_df = concat_dfs(barcodes_5_tsv, output_directory, "barcode_5")
+    barcode_3_df = concat_dfs(barcodes_3_tsv, output_directory, "barcode_3")
+
+    # concatenate data frames
+    barcode_df = barcode_5_df.loc[:, ['barcode']].copy()
+    barcode_df.columns = ['barcode_5']
+
+    barcode_3_df = barcode_3_df.loc[:, ['barcode']]
+    barcode_3_df.columns = ['barcode_3']
+
+    barcode_df = pd.concat([barcode_df, barcode_3_df])
+
+    ###################
+    # Change barcode_df # Fixing? Concatenating reads with same name
+    ###################
+    barcode_df = barcode_df.reset_index(level=0)
+    barcode_df = barcode_df.groupby('index').agg({'barcode_5': 'first', 'barcode_3': 'first'}, )
+
+    # rename the "0" assignment to no assignment
+    barcode_df = barcode_df.fillna('no_assignment')
+    barcode_df = barcode_df.replace("0", "no_assignment")
+    barcode_df = barcode_df.replace(0, "no_assignment")
+
+    barcode_df = barcode_df.sort_values(by=["barcode_5", "barcode_3"], ascending=True)
+    ###################
+    # save dataframe to output
+    ###################
+    outfile = os.path.join(output_directory, "read_assignments.tsv")
+    barcode_df.to_csv(outfile, sep='\t')
+
+
+    ###################
+    # move reads into correct directories and files
+    ###################
+    # args = [(file, final_parent_dir, np.unique(barcode_df.loc[:,'barcode_5'].to_numpy()), np.unique(barcode_df.loc[:,'barcode_3'].to_numpy()), i) for i, file in enumerate(fastqs_out)]
+    args = [(file, output_directory, barcode_df, i) for i, file in enumerate(fastqs_out)]
+
+    # separate files into
+    with ProcessPoolExecutor(max_workers=threads) as executor:
+        # directories for parallelized processing
+        read_assignment_dirs = list(executor.map(organize_fastq_reads, args))
+
+    # create directories for final assignments
+    final_parent_dir = create_final_directories(np.unique(barcode_df.loc[:, 'barcode_5'].to_numpy()), output_directory)
+
+    # define directories and files
+    dirs = list(np.unique(barcode_df.loc[:, 'barcode_5'].to_numpy()))
+    dirs.append("no_assignment")
+
+    files = list(np.unique(barcode_df.loc[:, 'barcode_3'].to_numpy()))
+    files.append("no_assignment")
+
+    # list regex files we need to search for
+    args = []
+    for dir_5 in dirs:
+        for file_3 in files:
+            args.append(
+                [os.path.join(output_directory, "*", dir_5, (file_3 + ".fastq.gz")), dir_5, file_3, final_parent_dir])
+
+    # combined separate files
+    with ProcessPoolExecutor(max_workers=threads) as executor:
+        # directories for parallelized processing
+        _null = list(executor.map(combine_output_files, args))
+
+    ###################
+    # cleanup results directory
+    ###################
+    # a list of possible directories and the final description tsv to keep
+    dirs = list(map(lambda x: os.path.join(output_directory, x), dirs))
+    dirs.append(outfile)
+
+    cleanup_results_dir(output_directory, np.array(dirs))
+
+    ###################
+    # count assigned reads
+    ###################
+    count_df = counts_read_assignemnts(barcode_df)
+    out_count = os.path.join(output_directory, "count_assigned_reads.tsv")
+    count_df.to_csv(out_count, sep='\t')
+    #
     print(time.time() - t1)
     print('demultiplex.py COMPLETE')
 
@@ -557,13 +540,10 @@ if __name__ == "__main__":
     # number of threads for multi-threaded processes
     threads = 1
 
-    # name of the conda env
-    conda_env_name = "venv"
-
     # the necessary input files and described output file
     try:
         opts, args = getopt.getopt(sys.argv[1:], "a:b:c:d:",
-                                   ["input_directory=", "output_directory=", "threads=", "conda_env_name="])
+                                   ["input_directory=", "output_directory=", "threads=",])
     except getopt.GetoptError:
         print(help_message)
         sys.exit(2)
@@ -577,7 +557,5 @@ if __name__ == "__main__":
             output_directory = str(arg)
         if opt in ("-c", "--threads"):
             threads = int(arg)
-        if opt in ("-d", "--conda_env_name"):
-            conda_env_name = str(arg)
 
     main()
